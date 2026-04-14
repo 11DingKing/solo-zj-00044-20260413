@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
 import { Line } from 'react-chartjs-2';
@@ -21,10 +21,13 @@ const EmployeeDetailComponent = () => {
     const [performances, setPerformances] = useState([]);
     const [statistics, setStatistics] = useState(null);
     const [showAddPerformance, setShowAddPerformance] = useState(false);
+    const [showBatchImport, setShowBatchImport] = useState(false);
     const [quarter, setQuarter] = useState(1);
     const [year, setYear] = useState(new Date().getFullYear());
     const [score, setScore] = useState(5);
     const [comment, setComment] = useState('');
+    const [batchJson, setBatchJson] = useState('');
+    const [importing, setImporting] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -74,6 +77,70 @@ const EmployeeDetailComponent = () => {
                 console.log(e);
                 alert(e.response?.data?.error || 'Failed to save performance');
             });
+    };
+
+    const handleBatchImport = (e) => {
+        e.preventDefault();
+        
+        if (!batchJson.trim()) {
+            alert('Please enter JSON data');
+            return;
+        }
+
+        let performances;
+        try {
+            performances = JSON.parse(batchJson);
+            if (!Array.isArray(performances)) {
+                throw new Error('Data must be an array');
+            }
+            performances = performances.map(p => ({
+                ...p,
+                employee: { id: parseInt(id) }
+            }));
+        } catch (error) {
+            alert('Invalid JSON format: ' + error.message);
+            return;
+        }
+
+        setImporting(true);
+        PerformanceService.batchImportPerformances(performances)
+            .then(res => {
+                alert(res.data.message || 'Import successful!');
+                setBatchJson('');
+                setShowBatchImport(false);
+                loadEmployeeData();
+            })
+            .catch(e => {
+                console.log(e);
+                alert(e.response?.data?.error || 'Import failed');
+            })
+            .finally(() => {
+                setImporting(false);
+            });
+    };
+
+    const getSampleJson = () => {
+        const sample = [
+            {
+                quarter: 1,
+                year: 2024,
+                score: 8,
+                comment: "Excellent performance"
+            },
+            {
+                quarter: 2,
+                year: 2024,
+                score: 7,
+                comment: "Good work"
+            },
+            {
+                quarter: 3,
+                year: 2024,
+                score: 9,
+                comment: "Outstanding"
+            }
+        ];
+        setBatchJson(JSON.stringify(sample, null, 2));
     };
 
     const getChartData = () => {
@@ -224,18 +291,32 @@ const EmployeeDetailComponent = () => {
             <div className="card mb-4">
                 <div className="card-header d-flex justify-content-between align-items-center">
                     <h5 className="mb-0">Performance History</h5>
-                    <button 
-                        className="btn btn-primary btn-sm"
-                        onClick={() => setShowAddPerformance(!showAddPerformance)}
-                    >
-                        {showAddPerformance ? 'Cancel' : '+ Add Performance'}
-                    </button>
+                    <div>
+                        <button 
+                            className="btn btn-success btn-sm me-2"
+                            onClick={() => {
+                                setShowBatchImport(!showBatchImport);
+                                setShowAddPerformance(false);
+                            }}
+                        >
+                            {showBatchImport ? 'Cancel' : '📥 Batch Import'}
+                        </button>
+                        <button 
+                            className="btn btn-primary btn-sm"
+                            onClick={() => {
+                                setShowAddPerformance(!showAddPerformance);
+                                setShowBatchImport(false);
+                            }}
+                        >
+                            {showAddPerformance ? 'Cancel' : '+ Add Single'}
+                        </button>
+                    </div>
                 </div>
                 <div className="card-body">
                     {showAddPerformance && (
                         <div className="card mb-4 bg-light">
                             <div className="card-body">
-                                <h6 className="card-title">Add/Update Performance</h6>
+                                <h6 className="card-title">Add/Update Single Performance</h6>
                                 <form onSubmit={handleAddPerformance}>
                                     <div className="row">
                                         <div className="col-md-3 mb-3">
@@ -292,6 +373,60 @@ const EmployeeDetailComponent = () => {
                         </div>
                     )}
 
+                    {showBatchImport && (
+                        <div className="card mb-4 bg-light">
+                            <div className="card-body">
+                                <h6 className="card-title">Batch Import Performance Data (for this employee)</h6>
+                                <p className="text-muted small">
+                                    Enter a JSON array of performance records. Each record should include: 
+                                    quarter (1-4), year, score (1-10), and optional comment.
+                                    <br />
+                                    <strong>Note:</strong> Employee ID will be automatically set to current employee ({employee.firstName} {employee.lastName}).
+                                    This operation uses database transactions. If any record fails, all changes will be rolled back.
+                                </p>
+                                <div className="mb-2">
+                                    <button 
+                                        type="button" 
+                                        className="btn btn-sm btn-outline-secondary"
+                                        onClick={getSampleJson}
+                                    >
+                                        Load Sample Data
+                                    </button>
+                                </div>
+                                <form onSubmit={handleBatchImport}>
+                                    <div className="mb-3">
+                                        <textarea 
+                                            className="form-control font-monospace"
+                                            rows={8}
+                                            value={batchJson}
+                                            onChange={(e) => setBatchJson(e.target.value)}
+                                            placeholder={`[
+  {
+    "quarter": 1,
+    "year": 2024,
+    "score": 8,
+    "comment": "Excellent performance"
+  }
+]`}
+                                        />
+                                    </div>
+                                    <button 
+                                        type="submit" 
+                                        className="btn btn-success"
+                                        disabled={importing}
+                                    >
+                                        {importing ? (
+                                            <>
+                                                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                                Importing...
+                                            </>
+                                        ) : 'Import Performance Data'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
                     {performances.length > 0 ? (
                         <>
                             <div style={{ height: '300px', marginBottom: '20px' }}>
@@ -334,7 +469,7 @@ const EmployeeDetailComponent = () => {
                     ) : (
                         <div className="text-center py-5 text-muted">
                             <p>No performance records found for this employee.</p>
-                            <p>Click "Add Performance" to create the first record.</p>
+                            <p>Click "Add Single" or "Batch Import" to create records.</p>
                         </div>
                     )}
                 </div>
